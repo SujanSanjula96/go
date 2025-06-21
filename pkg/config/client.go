@@ -20,10 +20,14 @@ package config
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -108,6 +112,40 @@ func (c *ClientConfig) WithTimeout(timeout time.Duration) *ClientConfig {
 	if c.HTTPClient != nil {
 		c.HTTPClient.Timeout = timeout
 	}
+	return c
+}
+
+// WithCertificatePath sets the path to the CA certificate file
+func (c *ClientConfig) WithCertificatePath(certPath *string) *ClientConfig {
+	if certPath == nil || *certPath == "" {
+		return c // No certificate path provided, do nothing
+	}
+
+	certPool, err := x509.SystemCertPool()
+	if err != nil || certPool == nil {
+		certPool = x509.NewCertPool()
+	}
+
+	// Load the CA certificate
+	pemData, err := os.ReadFile(*certPath)
+	if err != nil {
+		panic(fmt.Sprintf("Failed to read CA certificate: %v", err))
+	}
+
+	if ok := certPool.AppendCertsFromPEM(pemData); !ok {
+		log.Println("Warning: No certs appended from PEM")
+	}
+
+	if c.HTTPClient == nil {
+		c.HTTPClient = &http.Client{}
+	}
+	if c.HTTPClient.Transport == nil {
+		c.HTTPClient.Transport = http.DefaultTransport.(*http.Transport).Clone()
+	}
+	c.HTTPClient.Transport.(*http.Transport).TLSClientConfig = &tls.Config{
+		RootCAs: certPool,
+	}
+
 	return c
 }
 
